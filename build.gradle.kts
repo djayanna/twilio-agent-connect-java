@@ -78,6 +78,9 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // Mockito/ByteBuddy need experimental mode to generate mocks on the Java 24
+    // (class file major version 68) runtime.
+    systemProperty("net.bytebuddy.experimental", "true")
     finalizedBy(tasks.named("jacocoTestReport"))
 }
 
@@ -85,32 +88,66 @@ jacoco {
     toolVersion = "0.8.13"  // 0.8.13+ supports Java 24 (class file major version 68)
 }
 
+// Coverage excludes: the runnable example app and the Spring Boot entrypoint are
+// wiring/demo, not library logic.
+val coverageExclusions = listOf(
+    "com/twilio/agentconnect/examples/**",
+    "com/twilio/agentconnect/TwilioAgentConnectApplication.class"
+)
+
 tasks.named<JacocoReport>("jacocoTestReport") {
     dependsOn(tasks.named("test"))
     reports {
         xml.required.set(true)
         html.required.set(true)
     }
-    // Exclude the runnable example app and the Spring Boot entrypoint from coverage;
-    // they are wiring/demo, not library logic.
     classDirectories.setFrom(
         files(classDirectories.files.map {
-            fileTree(it) {
-                exclude(
-                    "com/twilio/agentconnect/examples/**",
-                    "com/twilio/agentconnect/TwilioAgentConnectApplication.class"
-                )
-            }
+            fileTree(it) { exclude(coverageExclusions) }
         })
     )
+}
+
+tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
+    dependsOn(tasks.named("test"))
+    classDirectories.setFrom(
+        files(classDirectories.files.map {
+            fileTree(it) { exclude(coverageExclusions) }
+        })
+    )
+    violationRules {
+        rule {
+            limit {
+                counter = "INSTRUCTION"
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+        rule {
+            limit {
+                counter = "BRANCH"
+                minimum = "0.75".toBigDecimal()
+            }
+        }
+    }
+}
+
+// Fail `./gradlew check` if coverage drops below the thresholds above.
+tasks.named("check") {
+    dependsOn(tasks.named("jacocoTestCoverageVerification"))
 }
 
 tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
 }
 
+// Two @SpringBootApplication classes exist (the SDK app + the OpenAI example),
+// so the main class must be declared explicitly for jar packaging / resolution.
+springBoot {
+    mainClass.set("com.twilio.agentconnect.TwilioAgentConnectApplication")
+}
+
 // Configure bootRun to use the main TAC application by default
-// Use -PmainClass=... to override
+// Use -PmainClass=... to override (e.g. to run the OpenAI example).
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
     mainClass.set(project.findProperty("mainClass") as String?
         ?: "com.twilio.agentconnect.TwilioAgentConnectApplication")
