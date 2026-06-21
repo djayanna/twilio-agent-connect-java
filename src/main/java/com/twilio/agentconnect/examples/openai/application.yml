@@ -1,0 +1,64 @@
+# OpenAI Example Application Configuration
+server:
+  port: 8080
+
+spring:
+  application:
+    name: openai-agent-example
+
+  main:
+    allow-circular-references: true
+
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=10000,expireAfterWrite=24h
+
+twilio:
+  agent-connect:
+    account-sid: ${TWILIO_ACCOUNT_SID:}
+    auth-token: ${TWILIO_AUTH_TOKEN:}
+    api-key: ${TWILIO_API_KEY:}
+    api-secret: ${TWILIO_API_SECRET:}
+    conversation-configuration-id: ${TWILIO_CONVERSATION_CONFIGURATION_ID:}
+    phone-number: ${TWILIO_PHONE_NUMBER:}
+    voice-public-domain: ${TWILIO_VOICE_PUBLIC_DOMAIN:}
+
+    memory:
+      store-id: ${TWILIO_MEMORY_STORE_ID:}
+      trait-groups: ${TWILIO_TRAIT_GROUPS:}
+      mode: once # Retrieve memory once at conversation start
+
+    idempotency:
+      capacity: 10000
+      ttl: 24h
+
+    cache:
+      provider: caffeine
+
+    resilience:
+      circuit-breaker:
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+      retry:
+        max-attempts: 3
+
+    voice:
+      enabled: true
+
+    channels:
+      sms: true
+      whatsapp: true
+      rcs: false
+      chat: true
+
+# OpenAI Configuration
+openai:
+  api:
+    key: ${OPENAI_API_KEY:}
+
+logging:
+  level:
+    com.twilio.agentconnect: INFO
+    com.twilio.agentconnect.examples.openai: DEBUG
+    reactor.netty: WARN
