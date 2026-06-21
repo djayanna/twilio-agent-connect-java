@@ -1,5 +1,6 @@
 plugins {
     java
+    jacoco
     id("org.springframework.boot") version "3.2.0"
     id("io.spring.dependency-management") version "1.1.4"
 }
@@ -62,10 +63,46 @@ dependencies {
     testImplementation("io.projectreactor:reactor-test")
     testImplementation("org.testcontainers:testcontainers:1.19.3")
     testImplementation("org.testcontainers:junit-jupiter:1.19.3")
+
+    // Mock web server for WebClient-based context clients
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+
+    // Mockito + ByteBuddy versions that understand the Java 24 (class v68) runtime.
+    // The versions pulled in transitively by spring-boot-starter-test (Mockito 5.7 /
+    // ByteBuddy 1.14.x) fail with "OpenedClassReader" errors on JDK 24.
+    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("org.mockito:mockito-junit-jupiter:5.14.2")
+    testImplementation("net.bytebuddy:byte-buddy:1.15.11")
+    testImplementation("net.bytebuddy:byte-buddy-agent:1.15.11")
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    finalizedBy(tasks.named("jacocoTestReport"))
+}
+
+jacoco {
+    toolVersion = "0.8.13"  // 0.8.13+ supports Java 24 (class file major version 68)
+}
+
+tasks.named<JacocoReport>("jacocoTestReport") {
+    dependsOn(tasks.named("test"))
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+    }
+    // Exclude the runnable example app and the Spring Boot entrypoint from coverage;
+    // they are wiring/demo, not library logic.
+    classDirectories.setFrom(
+        files(classDirectories.files.map {
+            fileTree(it) {
+                exclude(
+                    "com/twilio/agentconnect/examples/**",
+                    "com/twilio/agentconnect/TwilioAgentConnectApplication.class"
+                )
+            }
+        })
+    )
 }
 
 tasks.withType<JavaCompile> {
