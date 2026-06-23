@@ -111,4 +111,24 @@ class ConversationRelayProtocolTest {
         // No token/last on a clear message.
         assertNull(node.get("token"));
     }
+
+    @Test
+    void buildEndMessageIncludesHandoffData() throws Exception {
+        String handoff = "{\"reasonCode\":\"live-agent-handoff\"}";
+        String result = protocol.buildEndMessage(handoff);
+
+        var node = objectMapper.readTree(result);
+        assertEquals("end", node.path("type").asText());
+        // handoffData is carried as a JSON *string* per the relay spec.
+        assertEquals(handoff, node.path("handoffData").asText());
+    }
+
+    @Test
+    void buildEndMessageOmitsHandoffDataWhenNull() throws Exception {
+        String result = protocol.buildEndMessage(null);
+
+        var node = objectMapper.readTree(result);
+        assertEquals("end", node.path("type").asText());
+        assertNull(node.get("handoffData"));
+    }
 }

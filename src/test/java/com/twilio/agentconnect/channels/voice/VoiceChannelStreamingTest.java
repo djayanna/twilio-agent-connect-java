@@ -150,6 +150,25 @@ class VoiceChannelStreamingTest {
     }
 
     @Test
+    void endSessionEmitsEndFrameWithHandoffData() {
+        CapturedConnection conn = openConnection("CAend");
+
+        voiceChannel.endSession("CAend",
+            "{\"reasonCode\":\"live-agent-handoff\"}");
+
+        List<String> frames = conn.sent();
+        assertEquals(1, frames.size());
+        assertTrue(frames.get(0).contains("\"type\":\"end\""));
+        assertTrue(frames.get(0).contains("live-agent-handoff"));
+    }
+
+    @Test
+    void endSessionForUnknownConversationIsDroppedSilently() {
+        // No active connection -> warn + no-op, no exception.
+        voiceChannel.endSession("CAghost", "{}");
+    }
+
+    @Test
     void promptUsesStreamCallbackWhenRegistered() {
         // Arrange a connection and route the prompt through the stream path.
         WebSocketSession session = mock(WebSocketSession.class);

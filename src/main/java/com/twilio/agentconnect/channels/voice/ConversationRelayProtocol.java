@@ -121,4 +121,30 @@ public class ConversationRelayProtocol {
             throw new RuntimeException("Failed to build clear message", e);
         }
     }
+
+    /**
+     * Build an "end" message that terminates the Conversation Relay session.
+     *
+     * <p>When sent, Twilio ends the {@code <ConversationRelay>} verb and POSTs to
+     * its {@code action} URL with the call details and {@code handoffData}. That
+     * endpoint returns follow-on TwiML (e.g. {@code <Dial>} to a human agent).
+     *
+     * @param handoffData a JSON string passed through to the action URL, e.g.
+     *                    {@code {"reasonCode":"live-agent-handoff","reason":"..."}}.
+     *                    When null, the end message is sent without handoffData.
+     */
+    public String buildEndMessage(String handoffData) {
+        try {
+            java.util.Map<String, Object> message = new java.util.HashMap<>();
+            message.put("type", "end");
+            if (handoffData != null) {
+                // handoffData is a JSON *string* per the ConversationRelay spec.
+                message.put("handoffData", handoffData);
+            }
+            return objectMapper.writeValueAsString(message);
+        } catch (Exception e) {
+            log.error("Error building end message", e);
+            throw new RuntimeException("Failed to build end message", e);
+        }
+    }
 }

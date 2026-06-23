@@ -49,6 +49,9 @@ twilio:
       voice: ${TWILIO_VOICE_TTS:}
       language: ${TWILIO_VOICE_LANGUAGE:}
       welcome-greeting: ${TWILIO_VOICE_WELCOME_GREETING:}
+      # E.164 number dialed on human-agent handoff. When set, the relay TwiML
+      # gets an action URL and the agent can transfer the caller to this number.
+      handoff-agent-number: ${TWILIO_HANDOFF_AGENT_NUMBER:}
 
     channels:
       sms: true

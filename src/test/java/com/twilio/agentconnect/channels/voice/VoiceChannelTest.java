@@ -140,7 +140,7 @@ class VoiceChannelTest {
         when(config.getConversationConfigurationId()).thenReturn("config_123");
         when(config.getVoice()).thenReturn(voiceConfig);
         when(twimlGenerator.generateConnectTwiml(
-                anyString(), anyString(), anyString(), anyString(), anyString(), any()))
+                anyString(), anyString(), any(), anyString(), anyString(), anyString(), any()))
             .thenReturn("<Response/>");
 
         StepVerifier.create(voiceChannel.generateTwiml(Map.of("CallSid", "CA1")))
@@ -151,6 +151,8 @@ class VoiceChannelTest {
         verify(twimlGenerator).generateConnectTwiml(
             urlCaptor.capture(),
             eq("config_123"),
+            // No handoff number configured -> action URL is null.
+            eq((String) null),
             eq("en-US-Journey-O"),
             eq("en-US"),
             eq("Hi"),
@@ -167,7 +169,7 @@ class VoiceChannelTest {
         when(config.getConversationConfigurationId()).thenReturn(null);
         when(config.getVoice()).thenReturn(voiceConfig);
         when(twimlGenerator.generateConnectTwiml(
-                anyString(), any(), any(), any(), any(), any()))
+                anyString(), any(), any(), any(), any(), any(), any()))
             .thenReturn("<Response/>");
 
         StepVerifier.create(voiceChannel.generateTwiml(Map.of("CallSid", "CA1")))
@@ -176,7 +178,7 @@ class VoiceChannelTest {
 
         ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
         verify(twimlGenerator).generateConnectTwiml(
-            urlCaptor.capture(), any(), any(), any(), any(), any());
+            urlCaptor.capture(), any(), any(), any(), any(), any(), any());
 
         assertEquals("wss://my-host.ngrok.io/ws/voice", urlCaptor.getValue());
     }

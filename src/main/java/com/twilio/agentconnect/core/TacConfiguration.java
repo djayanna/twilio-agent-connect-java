@@ -385,6 +385,13 @@ public class TacConfiguration {
          */
         private String welcomeGreeting;
 
+        /**
+         * E.164 phone number a human-agent handoff dials into (e.g. a support
+         * line). Used by the handoff action endpoint's {@code <Dial><Number>}.
+         * Optional - handoff is unavailable when blank.
+         */
+        private String handoffAgentNumber;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -415,6 +422,14 @@ public class TacConfiguration {
 
         public void setWelcomeGreeting(String welcomeGreeting) {
             this.welcomeGreeting = welcomeGreeting;
+        }
+
+        public String getHandoffAgentNumber() {
+            return handoffAgentNumber;
+        }
+
+        public void setHandoffAgentNumber(String handoffAgentNumber) {
+            this.handoffAgentNumber = handoffAgentNumber;
         }
     }
 

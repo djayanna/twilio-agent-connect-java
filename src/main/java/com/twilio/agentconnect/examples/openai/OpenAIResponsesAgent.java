@@ -1,6 +1,8 @@
 package com.twilio.agentconnect.examples.openai;
 
 import com.theokanning.openai.completion.chat.ChatCompletionRequest;
+import com.theokanning.openai.completion.chat.ChatFunctionDynamic;
+import com.theokanning.openai.completion.chat.ChatFunctionProperty;
 import com.theokanning.openai.completion.chat.ChatMessage;
 import com.theokanning.openai.completion.chat.ChatMessageRole;
 import com.theokanning.openai.service.OpenAiService;
@@ -50,7 +52,16 @@ public class OpenAIResponsesAgent {
         "You are a customer service agent speaking with a user over voice or SMS. " +
         "Keep responses short and conversational — a sentence or two. " +
         "Do not use markdown, asterisks, bullets, or emojis; your words will be " +
-        "spoken aloud or sent as plain text.";
+        "spoken aloud or sent as plain text. " +
+        "Call the transfer_to_human function when the caller asks to speak to a " +
+        "person, is frustrated, or has an issue you cannot resolve.";
+
+    // Name of the LLM function that triggers a human handoff.
+    private static final String HANDOFF_FUNCTION = "transfer_to_human";
+
+    // Spoken to the caller right before the call transfers to a human agent.
+    private static final String HANDOFF_MESSAGE =
+        "Sure, let me connect you with someone who can help. One moment please.";
 
     // Store conversation history per conversation ID
     // This maintains context across multiple turns in a conversation
@@ -124,6 +135,7 @@ public class OpenAIResponsesAgent {
             ChatCompletionRequest request = ChatCompletionRequest.builder()
                 .model("gpt-4o-mini")
                 .messages(messages)
+                .functions(List.of(handoffFunction()))
                 .temperature(0.7)
                 .maxTokens(150)
                 .build();
@@ -133,6 +145,10 @@ public class OpenAIResponsesAgent {
             StringBuilder assistant = new StringBuilder();
             java.util.concurrent.atomic.AtomicInteger chunkSeq =
                 new java.util.concurrent.atomic.AtomicInteger();
+            // Set when the model streams a function call (handoff). Function-call
+            // deltas carry no spoken content, so we detect by name across chunks.
+            java.util.concurrent.atomic.AtomicBoolean handoffRequested =
+                new java.util.concurrent.atomic.AtomicBoolean();
 
             // theokanning's streamChatCompletion returns an RxJava2 Flowable, which
             // is itself a Reactive-Streams Publisher — wrap it directly with Flux.from.
@@ -144,8 +160,15 @@ public class OpenAIResponsesAgent {
                     if (choices.isEmpty() || choices.get(0).getMessage() == null) {
                         return "";
                     }
-                    String delta = choices.get(0).getMessage().getContent();
-                    return delta == null ? "" : delta;
+                    ChatMessage delta = choices.get(0).getMessage();
+                    // A function-call delta names the handoff function (possibly
+                    // only in the first chunk); flag it and emit no spoken token.
+                    if (delta.getFunctionCall() != null
+                            && HANDOFF_FUNCTION.equals(delta.getFunctionCall().getName())) {
+                        handoffRequested.set(true);
+                    }
+                    String content = delta.getContent();
+                    return content == null ? "" : content;
                 })
                 .filter(token -> !token.isEmpty())
                 .doOnNext(token -> {
@@ -164,15 +187,47 @@ public class OpenAIResponsesAgent {
                 })
                 .onErrorComplete()
                 .doOnComplete(() -> {
-                    history.add(new ChatMessage(
-                        ChatMessageRole.ASSISTANT.value(), assistant.toString()));
-                    log.info("✅ Stream complete (conv {}): {} chunks, {} chars",
-                             conversationId, chunkSeq.get(), assistant.length());
+                    if (assistant.length() > 0) {
+                        history.add(new ChatMessage(
+                            ChatMessageRole.ASSISTANT.value(), assistant.toString()));
+                    }
+                    log.info("✅ Stream complete (conv {}): {} chunks, {} chars, handoff={}",
+                             conversationId, chunkSeq.get(), assistant.length(),
+                             handoffRequested.get());
                 })
-                // Terminal frame signals the end of this response to ConversationRelay.
-                .doFinally(signal -> voiceChannel.sendResponse(conversationId, "", true))
+                .doFinally(signal -> {
+                    if (handoffRequested.get()) {
+                        // Speak a brief hand-off line, then end the relay session so
+                        // Twilio's action callback dials a human agent.
+                        voiceChannel.sendResponse(conversationId, HANDOFF_MESSAGE, true);
+                        voiceChannel.endSession(conversationId, handoffData(conversationId));
+                    } else {
+                        // Normal turn: terminal frame closes this response.
+                        voiceChannel.sendResponse(conversationId, "", true);
+                    }
+                })
                 .then();
         };
+    }
+
+    /** OpenAI function the model calls to escalate to a human agent. */
+    private static ChatFunctionDynamic handoffFunction() {
+        return ChatFunctionDynamic.builder()
+            .name(HANDOFF_FUNCTION)
+            .description("Transfer the caller to a human agent")
+            .addProperty(ChatFunctionProperty.builder()
+                .name("reason")
+                .type("string")
+                .description("Brief reason the caller needs a human")
+                .build())
+            .build();
+    }
+
+    /** Build the handoffData JSON string forwarded to the relay action URL. */
+    private static String handoffData(String conversationId) {
+        return "{\"reasonCode\":\"live-agent-handoff\","
+            + "\"reason\":\"Caller requested a human agent\","
+            + "\"conversationId\":\"" + conversationId + "\"}";
     }
 
     /**

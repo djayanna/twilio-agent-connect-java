@@ -107,10 +107,18 @@ public class VoiceChannel extends AbstractChannel {
         String websocketUrl = buildWebSocketUrl();
         TacConfiguration.VoiceConfig voiceConfig = config.getVoice();
 
+        // Only set the relay action URL when a handoff destination is configured,
+        // so calls without handoff don't get an unused end-of-session callback.
+        String actionUrl = (voiceConfig.getHandoffAgentNumber() != null
+                && !voiceConfig.getHandoffAgentNumber().isBlank())
+            ? buildHandoffActionUrl()
+            : null;
+
         return Mono.fromCallable(() ->
             twimlGenerator.generateConnectTwiml(
                 websocketUrl,
                 config.getConversationConfigurationId(),
+                actionUrl,
                 voiceConfig.getVoice(),
                 voiceConfig.getLanguage(),
                 voiceConfig.getWelcomeGreeting(),
@@ -183,6 +191,31 @@ public class VoiceChannel extends AbstractChannel {
 
         log.debug("➡️ Voice frame (conv {}) last={} token={}", conversationId, last, token);
         emit(outbound, relayProtocol.buildTokenMessage(token, last));
+    }
+
+    /**
+     * End the Conversation Relay session for a call, handing off via the relay's
+     * {@code action} URL.
+     *
+     * <p>Sends an {@code end} frame carrying {@code handoffData}; Twilio then ends
+     * the relay verb and POSTs to the configured action URL (see
+     * {@code /twiml/handoff}), which returns follow-on TwiML such as a
+     * {@code <Dial>} to a human agent.
+     *
+     * @param conversationId the call's conversation ID (callSid)
+     * @param handoffData    a JSON string forwarded to the action URL (e.g.
+     *                       {@code {"reasonCode":"live-agent-handoff","reason":"..."}})
+     */
+    public void endSession(String conversationId, String handoffData) {
+        Sinks.Many<String> outbound = outboundByConversation.get(conversationId);
+        if (outbound == null) {
+            log.warn("No active voice connection for conversation {}; cannot end session",
+                     conversationId);
+            return;
+        }
+        log.info("Ending relay session for conversation {} (handoffData={})",
+                 conversationId, handoffData);
+        emit(outbound, relayProtocol.buildEndMessage(handoffData));
     }
 
     /**
@@ -302,19 +335,32 @@ public class VoiceChannel extends AbstractChannel {
      * Build WebSocket URL for Conversation Relay.
      */
     private String buildWebSocketUrl() {
+        // Convert the https:// public base to wss:// (http:// -> ws://).
+        String base = publicBaseUrl();
+        String wssDomain = base.replace("https://", "wss://").replace("http://", "ws://");
+        return wssDomain + "/ws/voice";
+    }
+
+    /**
+     * Build the HTTPS action URL Twilio POSTs to when the relay session ends.
+     */
+    private String buildHandoffActionUrl() {
+        return publicBaseUrl() + "/twiml/handoff";
+    }
+
+    /**
+     * Normalize the configured public domain to a scheme-qualified base URL,
+     * defaulting to https:// when no scheme is present.
+     */
+    private String publicBaseUrl() {
         String domain = config.getVoicePublicDomain();
         if (domain == null || domain.isEmpty()) {
             throw new IllegalStateException("Voice public domain not configured");
         }
-
-        // Ensure domain has protocol, default to https://
         if (!domain.startsWith("http://") && !domain.startsWith("https://")) {
             domain = "https://" + domain;
         }
-
-        // Convert https:// to wss://, http:// to ws://
-        String wssDomain = domain.replace("https://", "wss://").replace("http://", "ws://");
-        return wssDomain + "/ws/voice";
+        return domain;
     }
 
     /**

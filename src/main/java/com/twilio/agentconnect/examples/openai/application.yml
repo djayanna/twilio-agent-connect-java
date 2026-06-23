@@ -45,6 +45,8 @@ twilio:
 
     voice:
       enabled: true
+      # E.164 number dialed when the agent escalates to a human (handoff).
+      handoff-agent-number: ${TWILIO_HANDOFF_AGENT_NUMBER:}
 
     channels:
       sms: true

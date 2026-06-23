@@ -28,6 +28,7 @@ public class TwimlGenerator {
     public String generateConnectTwiml(
             String websocketUrl,
             String conversationConfiguration,
+            String action,
             String voice,
             String language,
             String welcomeGreeting,
@@ -42,6 +43,8 @@ public class TwimlGenerator {
         // NOTE: attribute is "conversationConfiguration", NOT
         // "conversationConfigurationId" — the wrong name is silently ignored.
         appendAttribute(twiml, "conversationConfiguration", conversationConfiguration);
+        // action: Twilio POSTs here when the relay session ends (handoff hook).
+        appendAttribute(twiml, "action", action);
         appendAttribute(twiml, "voice", voice);
         appendAttribute(twiml, "language", language);
         appendAttribute(twiml, "welcomeGreeting", welcomeGreeting);
@@ -72,6 +75,32 @@ public class TwimlGenerator {
             "<Response><Say>%s</Say></Response>",
             escapeXml(message)
         );
+    }
+
+    /**
+     * Generate TwiML that dials a human agent (handoff destination).
+     *
+     * @param agentNumber the E.164 number to dial
+     * @param callerId    optional caller ID for the outbound leg (omitted when blank)
+     */
+    public String generateDialTwiml(String agentNumber, String callerId) {
+        StringBuilder twiml = new StringBuilder();
+        twiml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+        twiml.append("<Response>");
+        twiml.append("<Dial");
+        appendAttribute(twiml, "callerId", callerId);
+        twiml.append(">");
+        twiml.append("<Number>").append(escapeXml(agentNumber)).append("</Number>");
+        twiml.append("</Dial>");
+        twiml.append("</Response>");
+        return twiml.toString();
+    }
+
+    /**
+     * Generate TwiML that hangs up the call.
+     */
+    public String generateHangupTwiml() {
+        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response><Hangup/></Response>";
     }
 
     /**

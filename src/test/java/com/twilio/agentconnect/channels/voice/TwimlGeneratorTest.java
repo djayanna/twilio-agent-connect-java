@@ -23,7 +23,7 @@ class TwimlGeneratorTest {
     @Test
     void generateConnectTwimlAlwaysIncludesUrlAndStructure() {
         String xml = generator.generateConnectTwiml(
-            "wss://example.com/ws/voice", null, null, null, null, Map.of());
+            "wss://example.com/ws/voice", null, null, null, null, null, Map.of());
 
         assertTrue(xml.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assertTrue(xml.contains("<Response>"));
@@ -37,9 +37,10 @@ class TwimlGeneratorTest {
     @Test
     void generateConnectTwimlOmitsBlankOptionalAttributes() {
         String xml = generator.generateConnectTwiml(
-            "wss://example.com/ws/voice", "", "  ", null, "", Map.of());
+            "wss://example.com/ws/voice", "", "", "  ", null, "", Map.of());
 
         assertFalse(xml.contains("conversationConfiguration="));
+        assertFalse(xml.contains("action="));
         assertFalse(xml.contains("voice="));
         assertFalse(xml.contains("language="));
         assertFalse(xml.contains("welcomeGreeting="));
@@ -50,12 +51,14 @@ class TwimlGeneratorTest {
         String xml = generator.generateConnectTwiml(
             "wss://example.com/ws/voice",
             "config_123",
+            "https://example.com/twiml/handoff",
             "en-US-Journey-O",
             "en-US",
             "Hello there",
             Map.of());
 
         assertTrue(xml.contains("conversationConfiguration=\"config_123\""));
+        assertTrue(xml.contains("action=\"https://example.com/twiml/handoff\""));
         assertTrue(xml.contains("voice=\"en-US-Journey-O\""));
         assertTrue(xml.contains("language=\"en-US\""));
         assertTrue(xml.contains("welcomeGreeting=\"Hello there\""));
@@ -65,6 +68,7 @@ class TwimlGeneratorTest {
     void generateConnectTwimlEscapesXmlInAttributes() {
         String xml = generator.generateConnectTwiml(
             "wss://example.com/ws/voice",
+            null,
             null,
             null,
             null,
@@ -84,5 +88,30 @@ class TwimlGeneratorTest {
         assertTrue(xml.contains("<Response><Say>"));
         assertTrue(xml.contains("Tom &amp; Jerry &lt;said&gt; &quot;hi&quot; &apos;bye&apos;"));
         assertTrue(xml.contains("</Say></Response>"));
+    }
+
+    @Test
+    void generateDialTwimlDialsNumberWithCallerId() {
+        String xml = generator.generateDialTwiml("+15551234567", "+15559876543");
+
+        assertTrue(xml.contains("<Dial callerId=\"+15559876543\">"));
+        assertTrue(xml.contains("<Number>+15551234567</Number>"));
+        assertTrue(xml.contains("</Dial>"));
+    }
+
+    @Test
+    void generateDialTwimlOmitsBlankCallerId() {
+        String xml = generator.generateDialTwiml("+15551234567", null);
+
+        assertTrue(xml.contains("<Dial>"));
+        assertFalse(xml.contains("callerId="));
+        assertTrue(xml.contains("<Number>+15551234567</Number>"));
+    }
+
+    @Test
+    void generateHangupTwimlReturnsHangup() {
+        String xml = generator.generateHangupTwiml();
+
+        assertTrue(xml.contains("<Response><Hangup/></Response>"));
     }
 }
