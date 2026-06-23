@@ -37,14 +37,16 @@ public class TwimlGenerator {
         StringBuilder twiml = new StringBuilder();
         twiml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
         twiml.append("<Response>");
-        twiml.append("<Connect>");
+        // action is a <Connect> attribute: Twilio POSTs there when the relay
+        // session ends (the handoff hook), NOT a <ConversationRelay> attribute.
+        twiml.append("<Connect");
+        appendAttribute(twiml, "action", action);
+        twiml.append(">");
         twiml.append("<ConversationRelay ");
         twiml.append("url=\"").append(websocketUrl).append("\"");
         // NOTE: attribute is "conversationConfiguration", NOT
         // "conversationConfigurationId" — the wrong name is silently ignored.
         appendAttribute(twiml, "conversationConfiguration", conversationConfiguration);
-        // action: Twilio POSTs here when the relay session ends (handoff hook).
-        appendAttribute(twiml, "action", action);
         appendAttribute(twiml, "voice", voice);
         appendAttribute(twiml, "language", language);
         appendAttribute(twiml, "welcomeGreeting", welcomeGreeting);

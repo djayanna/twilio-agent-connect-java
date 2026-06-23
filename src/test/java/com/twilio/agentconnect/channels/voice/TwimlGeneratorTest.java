@@ -58,10 +58,11 @@ class TwimlGeneratorTest {
             Map.of());
 
         assertTrue(xml.contains("conversationConfiguration=\"config_123\""));
-        assertTrue(xml.contains("action=\"https://example.com/twiml/handoff\""));
         assertTrue(xml.contains("voice=\"en-US-Journey-O\""));
         assertTrue(xml.contains("language=\"en-US\""));
         assertTrue(xml.contains("welcomeGreeting=\"Hello there\""));
+        // action is a <Connect> attribute, not a <ConversationRelay> attribute.
+        assertTrue(xml.contains("<Connect action=\"https://example.com/twiml/handoff\">"));
     }
 
     @Test
