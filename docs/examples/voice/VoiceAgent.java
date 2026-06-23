@@ -48,7 +48,7 @@ public class VoiceAgent {
             System.out.println("===========================================");
             System.out.println("Voice Agent Started!");
             System.out.println("Voice endpoint: /twiml");
-            System.out.println("WebSocket endpoint: /voice/ws");
+            System.out.println("WebSocket endpoint: /ws/voice");
             System.out.println("===========================================");
             System.out.println();
             System.out.println("Setup:");

@@ -29,7 +29,7 @@ public class WebSocketConfig {
     public HandlerMapping webSocketHandlerMapping() {
         Map<String, org.springframework.web.reactive.socket.WebSocketHandler> map =
             new HashMap<>();
-        map.put("/voice/ws", webSocketHandler);
+        map.put("/ws/voice", webSocketHandler);
 
         SimpleUrlHandlerMapping handlerMapping = new SimpleUrlHandlerMapping();
         handlerMapping.setOrder(1);

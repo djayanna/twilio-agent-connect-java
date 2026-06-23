@@ -5,6 +5,8 @@ import com.theokanning.openai.completion.chat.ChatMessage;
 import com.theokanning.openai.completion.chat.ChatMessageRole;
 import com.theokanning.openai.service.OpenAiService;
 import com.twilio.agentconnect.callback.MessageReadyCallback;
+import com.twilio.agentconnect.callback.MessageStreamCallback;
+import com.twilio.agentconnect.channels.voice.VoiceChannel;
 import com.twilio.agentconnect.context.model.MessageContext;
 import com.twilio.agentconnect.context.model.MemoryResponse;
 import com.twilio.agentconnect.context.model.OutboundMessage;
@@ -12,11 +14,13 @@ import com.twilio.agentconnect.core.TwilioAgentConnect;
 import com.twilio.agentconnect.util.MemoryPromptBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -55,6 +59,11 @@ public class OpenAIResponsesAgent {
     @Value("${openai.api.key:}")
     private String openAiApiKey;
 
+    // The Voice channel is only present when voice is enabled; the streaming
+    // (push) handler uses it to forward tokens to the caller as they arrive.
+    @Autowired(required = false)
+    private VoiceChannel voiceChannel;
+
     public static void main(String[] args) {
         SpringApplication.run(OpenAIResponsesAgent.class, args);
     }
@@ -69,24 +78,108 @@ public class OpenAIResponsesAgent {
                 System.exit(1);
             }
 
-            // Register message handler callback
-            // TAC will invoke this function whenever a message needs processing
-            tac.onMessageReady(createMessageHandler());
+            OpenAiService openAiService = new OpenAiService(openAiApiKey, Duration.ofSeconds(30));
+
+            // Single-response callback (used by messaging channels: SMS/WhatsApp/Chat).
+            tac.onMessageReady(createMessageHandler(openAiService));
+
+            // Streaming push callback (used by the Voice channel): the handler streams
+            // OpenAI tokens and pushes them to the caller via voiceChannel.sendResponse,
+            // so Twilio starts speaking before the full reply is generated.
+            if (voiceChannel != null) {
+                tac.onMessageStream(createStreamHandler(openAiService));
+            }
 
             log.info("🤖 OpenAI Agent is ready!");
             log.info("📞 Voice endpoint: http://localhost:8080/twiml");
             log.info("💬 Messaging webhook: http://localhost:8080/webhook");
-            log.info("🔌 WebSocket endpoint: ws://localhost:8080/voice/ws");
+            log.info("🔌 WebSocket endpoint: ws://localhost:8080/ws/voice");
         };
     }
 
     /**
-     * Creates the message handler callback that processes customer messages.
+     * Streaming (push) handler — mirrors the Python pattern: build the input,
+     * stream tokens from OpenAI, and push them to the caller via the Voice
+     * channel. Returns a Mono that completes when the push finishes.
      */
-    private MessageReadyCallback createMessageHandler() {
-        // Initialize OpenAI client
-        final OpenAiService openAiService = new OpenAiService(openAiApiKey, Duration.ofSeconds(30));
+    private MessageStreamCallback createStreamHandler(OpenAiService openAiService) {
+        return (MessageContext context) -> {
+            String userMessage = context.getMessage().getContent();
+            String conversationId = context.getConversationId();
+            MemoryResponse memory = context.getMemory();
 
+            log.info("📨 Received prompt (stream): {} (conversation: {})",
+                     userMessage, conversationId);
+
+            List<ChatMessage> history =
+                conversationHistory.computeIfAbsent(conversationId, k -> new ArrayList<>());
+            history.add(new ChatMessage(ChatMessageRole.USER.value(), userMessage));
+
+            // Fresh system message (with current memory) + conversation so far.
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(new ChatMessage(
+                ChatMessageRole.SYSTEM.value(), buildSystemMessage(memory, context)));
+            messages.addAll(history);
+
+            ChatCompletionRequest request = ChatCompletionRequest.builder()
+                .model("gpt-4o-mini")
+                .messages(messages)
+                .temperature(0.7)
+                .maxTokens(150)
+                .build();
+
+            // Accumulate the assistant reply as it streams so we can persist it
+            // to history once the stream completes.
+            StringBuilder assistant = new StringBuilder();
+            java.util.concurrent.atomic.AtomicInteger chunkSeq =
+                new java.util.concurrent.atomic.AtomicInteger();
+
+            // theokanning's streamChatCompletion returns an RxJava2 Flowable, which
+            // is itself a Reactive-Streams Publisher — wrap it directly with Flux.from.
+            // We push each token to the voice channel as it arrives, then send the
+            // terminal (last=true) frame when the stream completes.
+            return Flux.from(openAiService.streamChatCompletion(request))
+                .map(chunk -> {
+                    var choices = chunk.getChoices();
+                    if (choices.isEmpty() || choices.get(0).getMessage() == null) {
+                        return "";
+                    }
+                    String delta = choices.get(0).getMessage().getContent();
+                    return delta == null ? "" : delta;
+                })
+                .filter(token -> !token.isEmpty())
+                .doOnNext(token -> {
+                    // Log each LLM chunk and forward it to the caller immediately.
+                    assistant.append(token);
+                    log.debug("🔹 LLM chunk #{} (conv {}): {}",
+                              chunkSeq.incrementAndGet(), conversationId, token);
+                    voiceChannel.sendResponse(conversationId, token, false);
+                })
+                .doOnError(e -> {
+                    log.error("Error streaming from OpenAI for conversation {}: {}",
+                              conversationId, e.getMessage(), e);
+                    // Speak a fallback message, then close the turn below.
+                    voiceChannel.sendResponse(conversationId,
+                        "Sorry, I encountered an error processing your message.", false);
+                })
+                .onErrorComplete()
+                .doOnComplete(() -> {
+                    history.add(new ChatMessage(
+                        ChatMessageRole.ASSISTANT.value(), assistant.toString()));
+                    log.info("✅ Stream complete (conv {}): {} chunks, {} chars",
+                             conversationId, chunkSeq.get(), assistant.length());
+                })
+                // Terminal frame signals the end of this response to ConversationRelay.
+                .doFinally(signal -> voiceChannel.sendResponse(conversationId, "", true))
+                .then();
+        };
+    }
+
+    /**
+     * Creates the single-response handler used by messaging channels (SMS,
+     * WhatsApp, Chat), which expect one complete reply rather than a stream.
+     */
+    private MessageReadyCallback createMessageHandler(OpenAiService openAiService) {
         return (MessageContext context) -> {
             String userMessage = context.getMessage().getContent();
             String conversationId = context.getConversationId();

@@ -53,7 +53,7 @@ public class MultichannelAgent {
             System.out.println();
             System.out.println("Endpoints:");
             System.out.println("  Voice TwiML: /twiml");
-            System.out.println("  Voice WS: /voice/ws");
+            System.out.println("  Voice WS: /ws/voice");
             System.out.println("  Messaging: /webhook");
             System.out.println("===========================================");
 

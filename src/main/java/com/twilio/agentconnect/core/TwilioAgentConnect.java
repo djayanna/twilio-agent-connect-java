@@ -4,6 +4,7 @@ package com.twilio.agentconnect.core;
 import com.twilio.agentconnect.callback.CallbackRegistry;
 import com.twilio.agentconnect.callback.ConversationEndedCallback;
 import com.twilio.agentconnect.callback.MessageReadyCallback;
+import com.twilio.agentconnect.callback.MessageStreamCallback;
 import com.twilio.agentconnect.context.client.ConversationClient;
 import com.twilio.agentconnect.context.client.KnowledgeClient;
 import com.twilio.agentconnect.context.client.MemoryClient;
@@ -61,6 +62,18 @@ public class TwilioAgentConnect {
     }
 
     /**
+     * Register a streaming callback invoked when a message is ready. The response
+     * is emitted token-by-token; streaming-capable channels (Voice) forward each
+     * token as it arrives. Takes precedence over {@link #onMessageReady} on those
+     * channels.
+     *
+     * @param callback The streaming callback
+     */
+    public void onMessageStream(MessageStreamCallback callback) {
+        callbackRegistry.onMessageStream(callback);
+    }
+
+    /**
      * Register a callback for when a conversation ends.
      *
      * @param callback The callback to handle conversation end
@@ -108,6 +121,35 @@ public class TwilioAgentConnect {
             .doOnSuccess(response -> log.debug("Generated response for conversation: {}",
                                                context.getConversationId()))
             .doOnError(error -> log.error("Error handling message", error));
+    }
+
+    /**
+     * Whether a streaming message callback is registered.
+     */
+    public boolean hasMessageStreamCallback() {
+        return callbackRegistry.hasMessageStreamCallback();
+    }
+
+    /**
+     * Handle a message context by invoking the registered streaming callback.
+     * The callback pushes the response itself (e.g. via
+     * {@code VoiceChannel.sendResponse}); this returns when that push completes.
+     *
+     * @param context The message context
+     * @return A Mono that completes when the streamed response has been pushed
+     *         (empty if no stream callback registered)
+     */
+    public Mono<Void> handleMessageContextStream(MessageContext context) {
+        if (!callbackRegistry.hasMessageStreamCallback()) {
+            log.warn("No message stream callback registered");
+            return Mono.empty();
+        }
+
+        return callbackRegistry.getMessageStreamCallback()
+            .onMessageStream(context)
+            .doOnSuccess(v -> log.debug("Completed streamed response for conversation: {}",
+                                        context.getConversationId()))
+            .doOnError(error -> log.error("Error handling streamed message", error));
     }
 
     /**

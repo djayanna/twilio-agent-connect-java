@@ -61,4 +61,6 @@ logging:
   level:
     com.twilio.agentconnect: INFO
     com.twilio.agentconnect.examples.openai: DEBUG
+    # DEBUG surfaces per-token streaming frames pushed to ConversationRelay
+    com.twilio.agentconnect.channels.voice: DEBUG
     reactor.netty: WARN

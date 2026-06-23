@@ -23,13 +23,13 @@ class TwimlGeneratorTest {
     @Test
     void generateConnectTwimlAlwaysIncludesUrlAndStructure() {
         String xml = generator.generateConnectTwiml(
-            "wss://example.com/voice/ws", null, null, null, null, Map.of());
+            "wss://example.com/ws/voice", null, null, null, null, Map.of());
 
         assertTrue(xml.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
         assertTrue(xml.contains("<Response>"));
         assertTrue(xml.contains("<Connect>"));
         assertTrue(xml.contains("<ConversationRelay "));
-        assertTrue(xml.contains("url=\"wss://example.com/voice/ws\""));
+        assertTrue(xml.contains("url=\"wss://example.com/ws/voice\""));
         assertTrue(xml.contains("</Connect>"));
         assertTrue(xml.contains("</Response>"));
     }
@@ -37,7 +37,7 @@ class TwimlGeneratorTest {
     @Test
     void generateConnectTwimlOmitsBlankOptionalAttributes() {
         String xml = generator.generateConnectTwiml(
-            "wss://example.com/voice/ws", "", "  ", null, "", Map.of());
+            "wss://example.com/ws/voice", "", "  ", null, "", Map.of());
 
         assertFalse(xml.contains("conversationConfiguration="));
         assertFalse(xml.contains("voice="));
@@ -48,7 +48,7 @@ class TwimlGeneratorTest {
     @Test
     void generateConnectTwimlEmitsAllOptionalAttributesWhenPresent() {
         String xml = generator.generateConnectTwiml(
-            "wss://example.com/voice/ws",
+            "wss://example.com/ws/voice",
             "config_123",
             "en-US-Journey-O",
             "en-US",
@@ -64,7 +64,7 @@ class TwimlGeneratorTest {
     @Test
     void generateConnectTwimlEscapesXmlInAttributes() {
         String xml = generator.generateConnectTwiml(
-            "wss://example.com/voice/ws",
+            "wss://example.com/ws/voice",
             null,
             null,
             null,

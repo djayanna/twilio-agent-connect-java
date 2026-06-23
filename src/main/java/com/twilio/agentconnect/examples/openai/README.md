@@ -57,7 +57,7 @@ You should see:
 🤖 OpenAI Agent is ready!
 📞 Voice endpoint: http://localhost:8080/twiml
 💬 Messaging webhook: http://localhost:8080/webhook
-🔌 WebSocket endpoint: ws://localhost:8080/voice/ws
+🔌 WebSocket endpoint: ws://localhost:8080/ws/voice
 ```
 
 ### 4. Test with SMS (Quickest)
@@ -250,7 +250,7 @@ There are **two independent ways** memory gets retrieved for a voice call:
    ```xml
    <Connect>
      <ConversationRelay
-       url="wss://your-domain/voice/ws"
+       url="wss://your-domain/ws/voice"
        conversationConfiguration="conv_configuration_xxxxxxxx" />
    </Connect>
    ```

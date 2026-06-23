@@ -404,7 +404,7 @@ twilio:
     
     # Voice
     voice:
-      websocket-path: /voice/ws
+      websocket-path: /ws/voice
       twiml-path: /twiml
     
     # Resilience
@@ -522,7 +522,7 @@ Check:
 Check:
 1. ngrok running
 2. Voice webhook points to ngrok URL + `/twiml`
-3. WebSocket endpoint `/voice/ws` accessible
+3. WebSocket endpoint `/ws/voice` accessible
 4. Check ngrok dashboard for requests
 
 ## License

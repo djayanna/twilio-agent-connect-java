@@ -82,15 +82,29 @@ public class ConversationRelayProtocol {
      * {@code last=true}, which signals Conversation Relay to play the audio.
      */
     public String buildResponseMessage(String text) {
+        return buildTokenMessage(text, true);
+    }
+
+    /**
+     * Build a streaming text token message.
+     *
+     * <p>Send each token with {@code last=false} as it arrives, then a final
+     * message with {@code last=true} to signal the response is complete. Twilio
+     * begins TTS playback as tokens stream in.
+     *
+     * @param token the text token (may be empty for the terminal {@code last=true} frame)
+     * @param last  whether this is the final token of the response
+     */
+    public String buildTokenMessage(String token, boolean last) {
         try {
             return objectMapper.writeValueAsString(java.util.Map.of(
                 "type", "text",
-                "token", text,
-                "last", true
+                "token", token == null ? "" : token,
+                "last", last
             ));
         } catch (Exception e) {
-            log.error("Error building response message", e);
-            throw new RuntimeException("Failed to build response message", e);
+            log.error("Error building token message", e);
+            throw new RuntimeException("Failed to build token message", e);
         }
     }
 

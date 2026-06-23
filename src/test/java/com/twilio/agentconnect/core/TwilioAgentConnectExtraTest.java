@@ -3,6 +3,7 @@ package com.twilio.agentconnect.core;
 import com.twilio.agentconnect.callback.CallbackRegistry;
 import com.twilio.agentconnect.callback.ConversationEndedCallback;
 import com.twilio.agentconnect.callback.MessageReadyCallback;
+import com.twilio.agentconnect.callback.MessageStreamCallback;
 import com.twilio.agentconnect.context.client.ConversationClient;
 import com.twilio.agentconnect.context.client.KnowledgeClient;
 import com.twilio.agentconnect.context.client.MemoryClient;
@@ -277,5 +278,45 @@ class TwilioAgentConnectExtraTest {
         // Existing profile id on the session is preferred over the caller address.
         org.assertj.core.api.Assertions.assertThat(identifierCaptor.getValue())
             .isEqualTo("mem_profile_resolved");
+    }
+
+    @Test
+    void onMessageStreamDelegatesToRegistry() {
+        MessageStreamCallback callback = ctx -> Mono.empty();
+
+        tac.onMessageStream(callback);
+
+        verify(callbackRegistry).onMessageStream(callback);
+    }
+
+    @Test
+    void hasMessageStreamCallbackDelegatesToRegistry() {
+        when(callbackRegistry.hasMessageStreamCallback()).thenReturn(true);
+        org.assertj.core.api.Assertions.assertThat(tac.hasMessageStreamCallback()).isTrue();
+        verify(callbackRegistry).hasMessageStreamCallback();
+    }
+
+    @Test
+    void handleMessageContextStreamInvokesRegisteredCallback() {
+        MessageContext context = MessageContext.builder().conversationId("CA1").build();
+        when(callbackRegistry.hasMessageStreamCallback()).thenReturn(true);
+        when(callbackRegistry.getMessageStreamCallback())
+            .thenReturn(ctx -> Mono.empty());
+
+        StepVerifier.create(tac.handleMessageContextStream(context))
+            .verifyComplete();
+
+        verify(callbackRegistry).getMessageStreamCallback();
+    }
+
+    @Test
+    void handleMessageContextStreamWithoutCallbackReturnsEmpty() {
+        MessageContext context = MessageContext.builder().conversationId("CA1").build();
+        when(callbackRegistry.hasMessageStreamCallback()).thenReturn(false);
+
+        StepVerifier.create(tac.handleMessageContextStream(context))
+            .verifyComplete();
+
+        verify(callbackRegistry, never()).getMessageStreamCallback();
     }
 }

@@ -14,6 +14,7 @@ public class CallbackRegistry {
     private static final Logger log = LoggerFactory.getLogger(CallbackRegistry.class);
 
     private MessageReadyCallback messageReadyCallback;
+    private MessageStreamCallback messageStreamCallback;
     private ConversationEndedCallback conversationEndedCallback;
 
     /**
@@ -22,6 +23,14 @@ public class CallbackRegistry {
     public void onMessageReady(MessageReadyCallback callback) {
         log.info("Registered message ready callback");
         this.messageReadyCallback = callback;
+    }
+
+    /**
+     * Register a streaming message callback (token-by-token responses).
+     */
+    public void onMessageStream(MessageStreamCallback callback) {
+        log.info("Registered message stream callback");
+        this.messageStreamCallback = callback;
     }
 
     /**
@@ -40,6 +49,13 @@ public class CallbackRegistry {
     }
 
     /**
+     * Check if a streaming message callback is registered
+     */
+    public boolean hasMessageStreamCallback() {
+        return messageStreamCallback != null;
+    }
+
+    /**
      * Check if conversation ended callback is registered
      */
     public boolean hasConversationEndedCallback() {
@@ -51,6 +67,13 @@ public class CallbackRegistry {
      */
     public MessageReadyCallback getMessageReadyCallback() {
         return messageReadyCallback;
+    }
+
+    /**
+     * Get the registered streaming message callback
+     */
+    public MessageStreamCallback getMessageStreamCallback() {
+        return messageStreamCallback;
     }
 
     /**

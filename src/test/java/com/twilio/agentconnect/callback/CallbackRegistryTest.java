@@ -22,9 +22,21 @@ class CallbackRegistryTest {
     @Test
     void hasNoCallbacksByDefault() {
         assertThat(registry.hasMessageReadyCallback()).isFalse();
+        assertThat(registry.hasMessageStreamCallback()).isFalse();
         assertThat(registry.hasConversationEndedCallback()).isFalse();
         assertThat(registry.getMessageReadyCallback()).isNull();
+        assertThat(registry.getMessageStreamCallback()).isNull();
         assertThat(registry.getConversationEndedCallback()).isNull();
+    }
+
+    @Test
+    void registersAndReturnsStreamCallback() {
+        MessageStreamCallback stream = ctx -> Mono.empty();
+
+        registry.onMessageStream(stream);
+
+        assertThat(registry.hasMessageStreamCallback()).isTrue();
+        assertThat(registry.getMessageStreamCallback()).isSameAs(stream);
     }
 
     @Test

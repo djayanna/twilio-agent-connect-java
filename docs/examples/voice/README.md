@@ -19,7 +19,7 @@ Customer → Phone Call → Twilio
                         ↓
                   ConversationRelay
                         ↓
-                  WebSocket (/voice/ws)
+                  WebSocket (/ws/voice)
                         ↓
                    VoiceChannel
                         ↓
@@ -133,7 +133,7 @@ The `/twiml` endpoint returns:
 <?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <ConversationRelay
-        url="wss://your-server/voice/ws"
+        url="wss://your-server/ws/voice"
         method="POST"
         voice="Polly.Joanna-Neural"
         track="both"

@@ -156,7 +156,7 @@ class VoiceChannelTest {
             eq("Hi"),
             any());
 
-        assertEquals("wss://example.com/voice/ws", urlCaptor.getValue());
+        assertEquals("wss://example.com/ws/voice", urlCaptor.getValue());
     }
 
     @Test
@@ -178,7 +178,7 @@ class VoiceChannelTest {
         verify(twimlGenerator).generateConnectTwiml(
             urlCaptor.capture(), any(), any(), any(), any(), any());
 
-        assertEquals("wss://my-host.ngrok.io/voice/ws", urlCaptor.getValue());
+        assertEquals("wss://my-host.ngrok.io/ws/voice", urlCaptor.getValue());
     }
 
     @Test

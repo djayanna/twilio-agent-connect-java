@@ -44,11 +44,11 @@ class WebSocketConfigTest {
             assertInstanceOf(SimpleUrlHandlerMapping.class, mapping);
 
         Map<String, ?> urlMap = urlMapping.getUrlMap();
-        assertTrue(urlMap.containsKey("/voice/ws"),
-            "Expected /voice/ws to be mapped");
-        assertSame(webSocketHandler, urlMap.get("/voice/ws"),
-            "Expected /voice/ws to map to the injected handler");
-        assertEquals(1, urlMap.size(), "Only /voice/ws should be mapped");
+        assertTrue(urlMap.containsKey("/ws/voice"),
+            "Expected /ws/voice to be mapped");
+        assertSame(webSocketHandler, urlMap.get("/ws/voice"),
+            "Expected /ws/voice to map to the injected handler");
+        assertEquals(1, urlMap.size(), "Only /ws/voice should be mapped");
     }
 
     @Test
@@ -64,7 +64,7 @@ class WebSocketConfigTest {
         SimpleUrlHandlerMapping urlMapping =
             (SimpleUrlHandlerMapping) config.webSocketHandlerMapping();
 
-        Object mapped = urlMapping.getUrlMap().get("/voice/ws");
+        Object mapped = urlMapping.getUrlMap().get("/ws/voice");
         assertInstanceOf(WebSocketHandler.class, mapped);
     }
 
