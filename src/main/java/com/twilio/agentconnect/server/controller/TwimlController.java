@@ -79,7 +79,10 @@ public class TwimlController {
      */
     Mono<ResponseEntity<String>> handoffAction(Map<String, String> params) {
         String callSid = params.get("CallSid");
-        String reasonCode = extractReasonCode(params.get("handoffData"));
+        // Twilio's <Connect> action callback sends PascalCase params, so the
+        // field is "HandoffData" (not "handoffData"). Accept either for safety.
+        String handoffData = params.getOrDefault("HandoffData", params.get("handoffData"));
+        String reasonCode = extractReasonCode(handoffData);
         log.info("Relay session ended for call {} (reasonCode={})", callSid, reasonCode);
 
         String agentNumber = config.getVoice().getHandoffAgentNumber();

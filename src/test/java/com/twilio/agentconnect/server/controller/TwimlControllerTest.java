@@ -102,7 +102,8 @@ class TwimlControllerTest {
         config.getVoice().setHandoffAgentNumber("+15551234567");
         Map<String, String> params = new HashMap<>();
         params.put("CallSid", "CA1");
-        params.put("handoffData", "{\"reasonCode\":\"live-agent-handoff\",\"reason\":\"x\"}");
+        // Twilio sends the param as PascalCase "HandoffData".
+        params.put("HandoffData", "{\"reasonCode\":\"live-agent-handoff\",\"reason\":\"x\"}");
 
         StepVerifier.create(controller.handoffAction(params))
             .assertNext(response -> {
@@ -115,11 +116,23 @@ class TwimlControllerTest {
     }
 
     @Test
+    void handoffActionAcceptsLowercaseHandoffDataFallback() {
+        config.getVoice().setHandoffAgentNumber("+15551234567");
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CA1");
+        params.put("handoffData", "{\"reasonCode\":\"live-agent-handoff\"}");
+
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> assertTrue(response.getBody().contains("<Number>+15551234567</Number>")))
+            .verifyComplete();
+    }
+
+    @Test
     void handoffActionHangsUpWhenReasonNotHandoff() {
         config.getVoice().setHandoffAgentNumber("+15551234567");
         Map<String, String> params = new HashMap<>();
         params.put("CallSid", "CA1");
-        params.put("handoffData", "{\"reasonCode\":\"completed\"}");
+        params.put("HandoffData", "{\"reasonCode\":\"completed\"}");
 
         StepVerifier.create(controller.handoffAction(params))
             .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
@@ -131,7 +144,7 @@ class TwimlControllerTest {
         // handoffAgentNumber left null
         Map<String, String> params = new HashMap<>();
         params.put("CallSid", "CA1");
-        params.put("handoffData", "{\"reasonCode\":\"live-agent-handoff\"}");
+        params.put("HandoffData", "{\"reasonCode\":\"live-agent-handoff\"}");
 
         StepVerifier.create(controller.handoffAction(params))
             .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
@@ -150,7 +163,7 @@ class TwimlControllerTest {
 
         Map<String, String> malformed = new HashMap<>();
         malformed.put("CallSid", "CA1");
-        malformed.put("handoffData", "not-json");
+        malformed.put("HandoffData", "not-json");
         StepVerifier.create(controller.handoffAction(malformed))
             .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
             .verifyComplete();
