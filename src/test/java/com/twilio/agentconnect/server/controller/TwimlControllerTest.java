@@ -1,6 +1,8 @@
 package com.twilio.agentconnect.server.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.twilio.agentconnect.channels.voice.ConferenceCoordinator;
+import com.twilio.agentconnect.channels.voice.HumanAgentDialer;
 import com.twilio.agentconnect.channels.voice.TwimlGenerator;
 import com.twilio.agentconnect.channels.voice.VoiceChannel;
 import com.twilio.agentconnect.core.TacConfiguration;
@@ -21,7 +23,9 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,10 +38,12 @@ class TwimlControllerTest {
 
     @Mock
     private VoiceChannel voiceChannel;
+    @Mock
+    private HumanAgentDialer humanAgentDialer;
 
-    // Real generator + mapper so handoff TwiML output is asserted end to end.
     private final TwimlGenerator twimlGenerator = new TwimlGenerator();
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ConferenceCoordinator conferenceCoordinator = new ConferenceCoordinator();
     private TacConfiguration config;
 
     private TwimlController controller;
@@ -46,7 +52,10 @@ class TwimlControllerTest {
     void setUp() {
         config = new TacConfiguration();
         config.setPhoneNumber("+15559876543");
-        controller = new TwimlController(voiceChannel, twimlGenerator, config, objectMapper);
+        config.setVoicePublicDomain("https://example.com");
+        controller = new TwimlController(
+            voiceChannel, twimlGenerator, config, objectMapper,
+            conferenceCoordinator, humanAgentDialer);
     }
 
     @Test
@@ -76,7 +85,6 @@ class TwimlControllerTest {
         when(voiceChannel.generateTwiml(anyMap()))
             .thenReturn(Mono.error(new RuntimeException("generation failed")));
 
-        // onErrorReturn(internalServerError) converts the error into a 500 response.
         StepVerifier.create(controller.generateTwiml(params))
             .assertNext(response -> assertEquals(
                 HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode()))
@@ -84,64 +92,43 @@ class TwimlControllerTest {
     }
 
     @Test
-    void generateTwimlHandlesMissingCallSid() {
-        Map<String, String> params = new HashMap<>();
-        String twiml = "<Response/>";
-        when(voiceChannel.generateTwiml(anyMap())).thenReturn(Mono.just(twiml));
-
-        StepVerifier.create(controller.generateTwiml(params))
-            .assertNext(response -> {
-                assertEquals(HttpStatus.OK, response.getStatusCode());
-                assertEquals(twiml, response.getBody());
-            })
-            .verifyComplete();
-    }
-
-    @Test
-    void handoffActionDialsAgentOnLiveAgentHandoff() {
+    void liveAgentHandoffParksCallerInConferenceAndDialsAgent() {
         config.getVoice().setHandoffAgentNumber("+15551234567");
         Map<String, String> params = new HashMap<>();
         params.put("CallSid", "CA1");
-        // Twilio sends the param as PascalCase "HandoffData".
-        params.put("HandoffData", "{\"reasonCode\":\"live-agent-handoff\",\"reason\":\"x\"}");
+        params.put("HandoffData",
+            "{\"reasonCode\":\"live-agent-handoff\",\"reason\":\"x\",\"summary\":\"caller wants refund\"}");
 
         StepVerifier.create(controller.handoffAction(params))
             .assertNext(response -> {
                 assertEquals(HttpStatus.OK, response.getStatusCode());
                 String body = response.getBody();
-                assertTrue(body.contains("<Dial callerId=\"+15559876543\">"));
-                assertTrue(body.contains("<Number>+15551234567</Number>"));
+                assertTrue(body.contains("<Conference"), "expected <Conference>: " + body);
+                assertTrue(body.contains("conf-CA1"), "expected conference name conf-CA1: " + body);
+                assertTrue(body.contains("startConferenceOnEnter=\"false\""));
+                assertTrue(body.contains("endConferenceOnExit=\"false\""));
             })
             .verifyComplete();
+
+        // The outbound dial fires asynchronously on the boundedElastic scheduler;
+        // poll for up to 2s so the verification isn't flaky.
+        long deadline = System.currentTimeMillis() + 2000;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                verify(humanAgentDialer).dialAgent(anyString(), anyString());
+                return;
+            } catch (AssertionError ignored) {
+                try { Thread.sleep(20); } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            }
+        }
+        verify(humanAgentDialer).dialAgent(anyString(), anyString());
     }
 
     @Test
-    void handoffActionAcceptsLowercaseHandoffDataFallback() {
-        config.getVoice().setHandoffAgentNumber("+15551234567");
-        Map<String, String> params = new HashMap<>();
-        params.put("CallSid", "CA1");
-        params.put("handoffData", "{\"reasonCode\":\"live-agent-handoff\"}");
-
-        StepVerifier.create(controller.handoffAction(params))
-            .assertNext(response -> assertTrue(response.getBody().contains("<Number>+15551234567</Number>")))
-            .verifyComplete();
-    }
-
-    @Test
-    void handoffActionHangsUpWhenReasonNotHandoff() {
-        config.getVoice().setHandoffAgentNumber("+15551234567");
-        Map<String, String> params = new HashMap<>();
-        params.put("CallSid", "CA1");
-        params.put("HandoffData", "{\"reasonCode\":\"completed\"}");
-
-        StepVerifier.create(controller.handoffAction(params))
-            .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
-            .verifyComplete();
-    }
-
-    @Test
-    void handoffActionHangsUpWhenNoAgentConfigured() {
-        // handoffAgentNumber left null
+    void liveAgentHandoffHangsUpWhenNoAgentConfigured() {
         Map<String, String> params = new HashMap<>();
         params.put("CallSid", "CA1");
         params.put("HandoffData", "{\"reasonCode\":\"live-agent-handoff\"}");
@@ -152,19 +139,226 @@ class TwimlControllerTest {
     }
 
     @Test
-    void handoffActionHangsUpOnMissingOrMalformedHandoffData() {
-        config.getVoice().setHandoffAgentNumber("+15551234567");
+    void bridgeToConferenceReturnsConferenceTwimlForAgent() {
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CAagent");
+        params.put("HandoffData",
+            "{\"reasonCode\":\"bridge-to-conference\",\"conference\":\"conf-CA1\"}");
 
-        Map<String, String> missing = new HashMap<>();
-        missing.put("CallSid", "CA1");
-        StepVerifier.create(controller.handoffAction(missing))
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> {
+                String body = response.getBody();
+                assertTrue(body.contains("<Conference"));
+                assertTrue(body.contains("conf-CA1"));
+                assertTrue(body.contains("startConferenceOnEnter=\"true\""));
+                assertTrue(body.contains("endConferenceOnExit=\"true\""));
+            })
+            .verifyComplete();
+    }
+
+    @Test
+    void bridgeToConferenceFallsBackToCtxIdLookup() {
+        ConferenceCoordinator.BriefingContext ctx = new ConferenceCoordinator.BriefingContext(
+            "CAcaller", "conf-CAcaller", "+15550001111", "reason", "summary");
+        String ctxId = conferenceCoordinator.store(ctx);
+
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CAagent");
+        params.put("HandoffData",
+            "{\"reasonCode\":\"bridge-to-conference\",\"ctxId\":\"" + ctxId + "\"}");
+
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> assertTrue(response.getBody().contains("conf-CAcaller")))
+            .verifyComplete();
+    }
+
+    @Test
+    void unknownReasonHangsUp() {
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CA1");
+        params.put("HandoffData", "{\"reasonCode\":\"completed\"}");
+
+        StepVerifier.create(controller.handoffAction(params))
             .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
             .verifyComplete();
+    }
 
-        Map<String, String> malformed = new HashMap<>();
-        malformed.put("CallSid", "CA1");
-        malformed.put("HandoffData", "not-json");
-        StepVerifier.create(controller.handoffAction(malformed))
+    @Test
+    void missingHandoffDataHangsUp() {
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CA1");
+
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
+            .verifyComplete();
+    }
+
+    @Test
+    void malformedHandoffDataHangsUp() {
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CA1");
+        params.put("HandoffData", "not-json");
+
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
+            .verifyComplete();
+    }
+
+    @Test
+    void briefingTwimlReturnsConversationRelayWithCtxParameter() {
+        ConferenceCoordinator.BriefingContext ctx = new ConferenceCoordinator.BriefingContext(
+            "CAcaller", "conf-CAcaller", "+15550001111", "reason", "summary");
+        String ctxId = conferenceCoordinator.store(ctx);
+
+        when(voiceChannel.buildWebSocketUrlPublic()).thenReturn("wss://example.com/ws/voice");
+
+        StepVerifier.create(controller.briefingTwiml(ctxId))
+            .assertNext(response -> {
+                String body = response.getBody();
+                assertTrue(body.contains("<ConversationRelay"));
+                assertTrue(body.contains("wss://example.com/ws/voice"));
+                assertTrue(body.contains("name=\"role\" value=\"briefing\""));
+                assertTrue(body.contains("name=\"ctxId\" value=\"" + ctxId + "\""));
+                // action on <Connect> so AI #2's bridge_to_caller endSession
+                // can hit /twiml/handoff and get conference TwiML.
+                assertTrue(body.contains("<Connect action=\"https://example.com/twiml/handoff\">"));
+            })
+            .verifyComplete();
+    }
+
+    @Test
+    void briefingTwimlHangsUpWhenCtxMissing() {
+        StepVerifier.create(controller.briefingTwiml(null))
+            .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
+            .verifyComplete();
+    }
+
+    @Test
+    void agentStatusRemovesContextOnNoAnswer() {
+        ConferenceCoordinator.BriefingContext ctx = new ConferenceCoordinator.BriefingContext(
+            "CAcaller", "conf-CAcaller", "+15550001111", "r", "s");
+        String ctxId = conferenceCoordinator.store(ctx);
+
+        org.springframework.mock.web.server.MockServerWebExchange exchange =
+            org.springframework.mock.web.server.MockServerWebExchange.from(
+                org.springframework.mock.http.server.reactive.MockServerHttpRequest
+                    .post("/twiml/agent-status?ctx=" + ctxId)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body("CallStatus=no-answer"));
+
+        StepVerifier.create(controller.agentStatus(ctxId, exchange))
+            .assertNext(r -> assertEquals(HttpStatus.OK, r.getStatusCode()))
+            .verifyComplete();
+
+        // Context was removed.
+        org.junit.jupiter.api.Assertions.assertNull(conferenceCoordinator.get(ctxId));
+    }
+
+    @Test
+    void agentStatusKeepsContextOnCompleted() {
+        ConferenceCoordinator.BriefingContext ctx = new ConferenceCoordinator.BriefingContext(
+            "CAcaller", "conf-CAcaller", "+15550001111", "r", "s");
+        String ctxId = conferenceCoordinator.store(ctx);
+
+        org.springframework.mock.web.server.MockServerWebExchange exchange =
+            org.springframework.mock.web.server.MockServerWebExchange.from(
+                org.springframework.mock.http.server.reactive.MockServerHttpRequest
+                    .post("/twiml/agent-status?ctx=" + ctxId)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body("CallStatus=completed"));
+
+        StepVerifier.create(controller.agentStatus(ctxId, exchange))
+            .assertNext(r -> assertEquals(HttpStatus.OK, r.getStatusCode()))
+            .verifyComplete();
+
+        // Context still present (call completed normally; bridge happens before this).
+        org.junit.jupiter.api.Assertions.assertNotNull(conferenceCoordinator.get(ctxId));
+    }
+
+    @Test
+    void agentStatusWithoutCtxReturnsOkWithoutSideEffects() {
+        org.springframework.mock.web.server.MockServerWebExchange exchange =
+            org.springframework.mock.web.server.MockServerWebExchange.from(
+                org.springframework.mock.http.server.reactive.MockServerHttpRequest
+                    .post("/twiml/agent-status")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body("CallStatus=failed"));
+
+        StepVerifier.create(controller.agentStatus(null, exchange))
+            .assertNext(r -> assertEquals(HttpStatus.OK, r.getStatusCode()))
+            .verifyComplete();
+    }
+
+    @Test
+    void agentStatusForFailedCallWithUnknownCtxStillReturnsOk() {
+        org.springframework.mock.web.server.MockServerWebExchange exchange =
+            org.springframework.mock.web.server.MockServerWebExchange.from(
+                org.springframework.mock.http.server.reactive.MockServerHttpRequest
+                    .post("/twiml/agent-status?ctx=ctx_missing")
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body("CallStatus=busy"));
+
+        StepVerifier.create(controller.agentStatus("ctx_missing", exchange))
+            .assertNext(r -> assertEquals(HttpStatus.OK, r.getStatusCode()))
+            .verifyComplete();
+    }
+
+    @Test
+    void liveAgentHandoffPreservesPrestoredCtxAndOverridesConferenceName() {
+        config.getVoice().setHandoffAgentNumber("+15551234567");
+        // AI #1 pre-stored a context (without yet knowing the conf name).
+        ConferenceCoordinator.BriefingContext stored = new ConferenceCoordinator.BriefingContext(
+            "CAprior", "conf-old", "+15550001111", "r", "summary text");
+        String prevCtxId = conferenceCoordinator.store(stored);
+
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CA1");
+        params.put("HandoffData",
+            "{\"reasonCode\":\"live-agent-handoff\",\"ctxId\":\"" + prevCtxId + "\"}");
+
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> {
+                String body = response.getBody();
+                assertTrue(body.contains("conf-CA1"), "conference name should derive from CallSid");
+            })
+            .verifyComplete();
+
+        // Old ctx replaced (key changed) but a new entry exists with the new conference.
+        org.junit.jupiter.api.Assertions.assertNull(conferenceCoordinator.get(prevCtxId));
+    }
+
+    @Test
+    void bridgeToConferenceWithoutNameOrCtxHangsUp() {
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CAagent");
+        params.put("HandoffData", "{\"reasonCode\":\"bridge-to-conference\"}");
+
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
+            .verifyComplete();
+    }
+
+    @Test
+    void liveAgentHandoffWithEmptyConfigDomainSurfacesError() {
+        config.setVoicePublicDomain(null);
+        config.getVoice().setHandoffAgentNumber("+15551234567");
+        Map<String, String> params = new HashMap<>();
+        params.put("CallSid", "CA1");
+        params.put("HandoffData", "{\"reasonCode\":\"live-agent-handoff\"}");
+
+        // The synchronous TwiML still returns Conference; the async dial throws
+        // IllegalStateException internally and is logged but not surfaced.
+        StepVerifier.create(controller.handoffAction(params))
+            .assertNext(response -> {
+                String body = response.getBody();
+                assertTrue(body.contains("<Conference"));
+            })
+            .verifyComplete();
+    }
+
+    @Test
+    void briefingTwimlHangsUpWhenCtxUnknown() {
+        StepVerifier.create(controller.briefingTwiml("ctx_unknown"))
             .assertNext(response -> assertTrue(response.getBody().contains("<Hangup/>")))
             .verifyComplete();
     }

@@ -60,7 +60,8 @@ class VoiceChannelTest {
     @BeforeEach
     void setUp() {
         voiceChannel = new VoiceChannel(
-            tac, signatureValidator, config, twimlGenerator, relayProtocol, idempotencyCache);
+            tac, signatureValidator, config, twimlGenerator, relayProtocol, idempotencyCache,
+            new com.twilio.agentconnect.channels.voice.ConferenceCoordinator());
     }
 
     @Test

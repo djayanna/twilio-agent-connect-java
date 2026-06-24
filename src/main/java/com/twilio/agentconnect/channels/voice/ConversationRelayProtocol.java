@@ -59,6 +59,12 @@ public class ConversationRelayProtocol {
                 case SETUP:
                     builder.from(root.path("from").asText())
                            .to(root.path("to").asText());
+                    JsonNode custom = root.path("customParameters");
+                    if (custom.isObject()) {
+                        java.util.Map<String, String> params = new java.util.HashMap<>();
+                        custom.fields().forEachRemaining(e -> params.put(e.getKey(), e.getValue().asText()));
+                        builder.customParameters(params);
+                    }
                     break;
                 case PROMPT:
                     // "voicePrompt" is the transcribed speech as a plain string.

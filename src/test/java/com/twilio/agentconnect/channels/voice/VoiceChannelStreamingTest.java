@@ -57,11 +57,14 @@ class VoiceChannelStreamingTest {
         new ConversationRelayProtocol(new com.fasterxml.jackson.databind.ObjectMapper());
 
     private VoiceChannel voiceChannel;
+    private ConferenceCoordinator conferenceCoordinator;
 
     @BeforeEach
     void setUp() {
+        conferenceCoordinator = new ConferenceCoordinator();
         voiceChannel = new VoiceChannel(
-            tac, signatureValidator, config, twimlGenerator, relayProtocol, idempotencyCache);
+            tac, signatureValidator, config, twimlGenerator, relayProtocol, idempotencyCache,
+            conferenceCoordinator);
     }
 
     /**
@@ -192,6 +195,45 @@ class VoiceChannelStreamingTest {
         // Stream path taken; single-response path not used.
         org.mockito.Mockito.verify(tac).handleMessageContextStream(ctx);
         org.mockito.Mockito.verify(tac, org.mockito.Mockito.never()).handleMessageContext(any());
+    }
+
+    @Test
+    void briefingSetupBindsContextByCallSid() {
+        ConferenceCoordinator.BriefingContext ctx = new ConferenceCoordinator.BriefingContext(
+            "CAcaller", "conf-CAcaller", "+15550001111", "frustrated", "wants refund");
+        String ctxId = conferenceCoordinator.store(ctx);
+
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("ws-CAagent");
+        when(session.textMessage(anyString())).thenAnswer(inv -> mock(WebSocketMessage.class));
+        when(session.send(any())).thenAnswer(inv -> Flux.from(inv.getArgument(0)).then());
+
+        Sinks.Many<String> inbound = Sinks.many().unicast().onBackpressureBuffer();
+        inbound.tryEmitNext("{\"type\":\"setup\",\"callSid\":\"CAagent\","
+            + "\"from\":\"+1\",\"to\":\"+2\","
+            + "\"customParameters\":{\"role\":\"briefing\",\"ctxId\":\"" + ctxId + "\"}}");
+
+        // Subscribe but DON'T complete inbound — that would fire cleanupSession
+        // and remove the briefing entry before we can assert on it.
+        voiceChannel.handleWebSocketConnection(session, inbound.asFlux()).subscribe();
+
+        assertEquals(ctx, voiceChannel.getBriefingContext("CAagent"));
+    }
+
+    @Test
+    void nonBriefingSetupHasNoBriefingContext() {
+        WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getId()).thenReturn("ws-plain");
+        when(session.textMessage(anyString())).thenAnswer(inv -> mock(WebSocketMessage.class));
+        when(session.send(any())).thenAnswer(inv -> Flux.from(inv.getArgument(0)).then());
+
+        Sinks.Many<String> inbound = Sinks.many().unicast().onBackpressureBuffer();
+        inbound.tryEmitNext("{\"type\":\"setup\",\"callSid\":\"CAplain\","
+            + "\"from\":\"+1\",\"to\":\"+2\"}");
+
+        voiceChannel.handleWebSocketConnection(session, inbound.asFlux()).subscribe();
+
+        org.junit.jupiter.api.Assertions.assertNull(voiceChannel.getBriefingContext("CAplain"));
     }
 
     @Test

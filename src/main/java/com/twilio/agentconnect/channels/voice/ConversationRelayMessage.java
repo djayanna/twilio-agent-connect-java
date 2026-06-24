@@ -38,6 +38,13 @@ public class ConversationRelayMessage {
     private String markName;
 
     /**
+     * Custom {@code <Parameter>} values from the TwiML, present on SETUP when
+     * the verb declared {@code <Parameter name="..." value="..."/>} children
+     * (used here to flag briefing sessions and pass the context lookup id).
+     */
+    private java.util.Map<String, String> customParameters;
+
+    /**
      * Message types from Conversation Relay
      */
     public enum MessageType {
@@ -95,6 +102,14 @@ public class ConversationRelayMessage {
         this.markName = markName;
     }
 
+    public java.util.Map<String, String> getCustomParameters() {
+        return customParameters;
+    }
+
+    public void setCustomParameters(java.util.Map<String, String> customParameters) {
+        this.customParameters = customParameters;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -106,6 +121,7 @@ public class ConversationRelayMessage {
         private String from;
         private String to;
         private String markName;
+        private java.util.Map<String, String> customParameters;
 
         public Builder type(MessageType type) {
             this.type = type;
@@ -137,6 +153,11 @@ public class ConversationRelayMessage {
             return this;
         }
 
+        public Builder customParameters(java.util.Map<String, String> customParameters) {
+            this.customParameters = customParameters;
+            return this;
+        }
+
         public ConversationRelayMessage build() {
             ConversationRelayMessage message = new ConversationRelayMessage();
             message.type = this.type;
@@ -145,6 +166,7 @@ public class ConversationRelayMessage {
             message.from = this.from;
             message.to = this.to;
             message.markName = this.markName;
+            message.customParameters = this.customParameters;
             return message;
         }
     }

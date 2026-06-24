@@ -392,6 +392,18 @@ public class TacConfiguration {
          */
         private String handoffAgentNumber;
 
+        /**
+         * URL Twilio plays to the caller while they wait in the handoff
+         * conference. When blank, Twilio's default hold music is used.
+         */
+        private String conferenceWaitUrl;
+
+        /**
+         * How long to wait for the human agent to answer the briefing call
+         * before giving up; default 30s.
+         */
+        private int agentReachTimeoutSeconds = 30;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -430,6 +442,22 @@ public class TacConfiguration {
 
         public void setHandoffAgentNumber(String handoffAgentNumber) {
             this.handoffAgentNumber = handoffAgentNumber;
+        }
+
+        public String getConferenceWaitUrl() {
+            return conferenceWaitUrl;
+        }
+
+        public void setConferenceWaitUrl(String conferenceWaitUrl) {
+            this.conferenceWaitUrl = conferenceWaitUrl;
+        }
+
+        public int getAgentReachTimeoutSeconds() {
+            return agentReachTimeoutSeconds;
+        }
+
+        public void setAgentReachTimeoutSeconds(int agentReachTimeoutSeconds) {
+            this.agentReachTimeoutSeconds = agentReachTimeoutSeconds;
         }
     }
 

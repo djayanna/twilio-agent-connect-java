@@ -110,6 +110,69 @@ class TwimlGeneratorTest {
     }
 
     @Test
+    void generateConferenceTwimlForCallerLocksConferenceUntilAgentJoins() {
+        String xml = generator.generateConferenceTwiml(
+            "conf-CA1", TwimlGenerator.ConferenceRole.CALLER, null);
+
+        assertTrue(xml.contains("<Conference"));
+        assertTrue(xml.contains("startConferenceOnEnter=\"false\""));
+        assertTrue(xml.contains("endConferenceOnExit=\"false\""));
+        assertTrue(xml.contains(">conf-CA1</Conference>"));
+        assertFalse(xml.contains("waitUrl="));
+    }
+
+    @Test
+    void generateConferenceTwimlForCallerEmitsWaitUrlWhenProvided() {
+        String xml = generator.generateConferenceTwiml(
+            "conf-CA1",
+            TwimlGenerator.ConferenceRole.CALLER,
+            "https://example.com/hold.mp3");
+
+        assertTrue(xml.contains("waitUrl=\"https://example.com/hold.mp3\""));
+    }
+
+    @Test
+    void generateConferenceTwimlForAgentStartsAndEndsConference() {
+        String xml = generator.generateConferenceTwiml(
+            "conf-CA1", TwimlGenerator.ConferenceRole.AGENT, null);
+
+        assertTrue(xml.contains("startConferenceOnEnter=\"true\""));
+        assertTrue(xml.contains("endConferenceOnExit=\"true\""));
+    }
+
+    @Test
+    void generateBriefingConnectTwimlPassesCtxIdAndActionAsParameter() {
+        String xml = generator.generateBriefingConnectTwiml(
+            "wss://example.com/ws/voice",
+            "ctx_abc",
+            "https://example.com/twiml/handoff",
+            "en-US-Journey-O",
+            "en-US",
+            "Hi there");
+
+        assertTrue(xml.contains("<ConversationRelay "));
+        assertTrue(xml.contains("url=\"wss://example.com/ws/voice\""));
+        assertTrue(xml.contains("voice=\"en-US-Journey-O\""));
+        assertTrue(xml.contains("language=\"en-US\""));
+        assertTrue(xml.contains("welcomeGreeting=\"Hi there\""));
+        assertTrue(xml.contains("name=\"role\" value=\"briefing\""));
+        assertTrue(xml.contains("name=\"ctxId\" value=\"ctx_abc\""));
+        // action belongs on <Connect>, not <ConversationRelay>.
+        assertTrue(xml.contains("<Connect action=\"https://example.com/twiml/handoff\">"));
+    }
+
+    @Test
+    void generateBriefingConnectTwimlOmitsBlankOptionalAttributes() {
+        String xml = generator.generateBriefingConnectTwiml(
+            "wss://example.com/ws/voice", "ctx_abc", null, null, null, null);
+
+        assertFalse(xml.contains("voice="));
+        assertFalse(xml.contains("language="));
+        assertFalse(xml.contains("welcomeGreeting="));
+        assertFalse(xml.contains(" action="));
+    }
+
+    @Test
     void generateHangupTwimlReturnsHangup() {
         String xml = generator.generateHangupTwiml();
 

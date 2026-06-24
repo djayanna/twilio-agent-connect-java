@@ -36,6 +36,16 @@ public class VoiceChannel extends AbstractChannel {
     private final TwimlGenerator twimlGenerator;
     private final ConversationRelayProtocol relayProtocol;
     private final IdempotencyCache idempotencyCache;
+    private final ConferenceCoordinator conferenceCoordinator;
+
+    /**
+     * Active briefing contexts indexed by the briefing call's CallSid. Set
+     * during the SETUP frame when {@code customParameters.role == "briefing"};
+     * the agent's stream handler reads this to seed AI #2's system prompt with
+     * the caller's summary.
+     */
+    private final Map<String, ConferenceCoordinator.BriefingContext> briefingByCallSid =
+        new ConcurrentHashMap<>();
 
     /**
      * Per-WebSocket call metadata captured from the "setup" message. Subsequent
@@ -59,12 +69,22 @@ public class VoiceChannel extends AbstractChannel {
             TacConfiguration config,
             TwimlGenerator twimlGenerator,
             ConversationRelayProtocol relayProtocol,
-            IdempotencyCache idempotencyCache) {
+            IdempotencyCache idempotencyCache,
+            ConferenceCoordinator conferenceCoordinator) {
         super(tac, signatureValidator);
         this.config = config;
         this.twimlGenerator = twimlGenerator;
         this.relayProtocol = relayProtocol;
         this.idempotencyCache = idempotencyCache;
+        this.conferenceCoordinator = conferenceCoordinator;
+    }
+
+    /**
+     * If this call is a briefing session (started by the human agent's
+     * outbound leg), return its briefing context; otherwise null.
+     */
+    public ConferenceCoordinator.BriefingContext getBriefingContext(String callSid) {
+        return briefingByCallSid.get(callSid);
     }
 
     @Override
@@ -241,6 +261,7 @@ public class VoiceChannel extends AbstractChannel {
         CallMetadata metadata = callMetadataBySession.remove(sessionId);
         if (metadata != null && metadata.callSid() != null) {
             outboundByConversation.remove(metadata.callSid());
+            briefingByCallSid.remove(metadata.callSid());
         }
     }
 
@@ -276,6 +297,24 @@ public class VoiceChannel extends AbstractChannel {
             message.getCallSid(), message.getFrom(), message.getTo()));
         if (message.getCallSid() != null) {
             outboundByConversation.put(message.getCallSid(), outbound);
+        }
+        // Briefing-session detection: TwiML may have passed
+        // <Parameter name="role" value="briefing"/> + <Parameter name="ctxId" .../>.
+        // When present, look up the stored context and index it by this leg's
+        // CallSid so the agent's stream handler can seed AI #2 with a summary.
+        Map<String, String> custom = message.getCustomParameters();
+        if (custom != null && "briefing".equals(custom.get("role"))) {
+            String ctxId = custom.get("ctxId");
+            if (ctxId != null) {
+                ConferenceCoordinator.BriefingContext ctx = conferenceCoordinator.get(ctxId);
+                if (ctx != null && message.getCallSid() != null) {
+                    briefingByCallSid.put(message.getCallSid(), ctx);
+                    log.info("Briefing session {} bound to ctx {} (conference={})",
+                             message.getCallSid(), ctxId, ctx.conferenceName());
+                } else {
+                    log.warn("Briefing session {} has unknown ctxId {}", message.getCallSid(), ctxId);
+                }
+            }
         }
         return Mono.empty();
     }
@@ -329,6 +368,11 @@ public class VoiceChannel extends AbstractChannel {
     private Mono<Void> handleMark(WebSocketSession session, ConversationRelayMessage message) {
         log.debug("Received mark: {}", message.getMarkName());
         return Mono.empty();
+    }
+
+    /** Public-accessor variant for callers outside this package (e.g. controllers). */
+    public String buildWebSocketUrlPublic() {
+        return buildWebSocketUrl();
     }
 
     /**
